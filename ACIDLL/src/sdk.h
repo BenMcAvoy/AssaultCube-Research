@@ -412,6 +412,22 @@ namespace SDK {
 	typedef void(__fastcall* line_t)(int, int, int, int, Colour*);
 	inline line_t line = (line_t)LINE_ABS;
 
+    // 0x4C31F0 == raycubelos
+    extern "C" bool __cdecl raycubelos(const Vec3& from, const Vec3& to, float margin);
+	using raycubelos_t = bool(__cdecl*)(const Vec3& from, const Vec3& to, float margin);
+    __declspec(naked) bool __cdecl raycubelos(const Vec3& from, const Vec3& to, float margin)
+	{
+		__asm {
+			// bool __usercall raycubelos@<al>(const vec *from@<ecx>, const vec *to@<edx>, float a3@<xmm2>)
+			mov     ecx, [esp + 4]     // from -> ECX
+			mov     edx, [esp + 8]     // to -> EDX
+			movss   xmm2, [esp + 12]   // margin -> XMM2
+			mov     eax, 0x004C31F0    // target function address
+			call    eax                // call through EAX
+			ret
+		}
+	}
+
     namespace G {
         Mat4* mvpMatrix = (Mat4*)0x57EFB0;
         Mat4* mvMatrix = (Mat4*)0x57EFF0;

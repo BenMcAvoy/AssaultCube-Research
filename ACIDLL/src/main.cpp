@@ -72,62 +72,69 @@ static Rect drawBox(SDK::PlayerEntity* player) {
 		2.f, 0, 2.f
 	);*/
 
+	auto hasLOS = SDK::raycubelos(SDK::G::localPlayer->origin, player->origin, 0.0f);
+
+	// white if no LOS, red if LOS
+	auto cornerColour = hasLOS ? IM_COL32(230, 50, 50, 200) : IM_COL32(230, 230, 230, 200);
+
 	// draw corners instead of a full box
 	auto lineLen = (maxX - minX) * 0.2f;
 	ImGui::GetForegroundDrawList()->AddLine(
 		ImVec2(minX, minY),
 		ImVec2(minX + lineLen, minY),
-		IM_COL32(230, 230, 230, 200),
+		cornerColour,
 		2.f
 	);
 	ImGui::GetForegroundDrawList()->AddLine(
 		ImVec2(minX, minY),
 		ImVec2(minX, minY + lineLen),
-		IM_COL32(230, 230, 230, 200),
+		cornerColour,
 		2.f
 	);
 	ImGui::GetForegroundDrawList()->AddLine(
 		ImVec2(maxX, minY),
 		ImVec2(maxX - lineLen, minY),
-		IM_COL32(230, 230, 230, 200),
+		cornerColour,
 		2.f
 	);
 	ImGui::GetForegroundDrawList()->AddLine(
 		ImVec2(maxX, minY),
 		ImVec2(maxX, minY + lineLen),
-		IM_COL32(230, 230, 230, 200),
+		cornerColour,
 		2.f
 	);
 	ImGui::GetForegroundDrawList()->AddLine(
 		ImVec2(minX, maxY),
 		ImVec2(minX + lineLen, maxY),
-		IM_COL32(230, 230, 230, 200),
+		cornerColour,
 		2.f
 	);
 	ImGui::GetForegroundDrawList()->AddLine(
 		ImVec2(minX, maxY),
 		ImVec2(minX, maxY - lineLen),
-		IM_COL32(230, 230, 230, 200),
+		cornerColour,
 		2.f
 	);
 	ImGui::GetForegroundDrawList()->AddLine(
 		ImVec2(maxX, maxY),
 		ImVec2(maxX - lineLen, maxY),
-		IM_COL32(230, 230, 230, 200),
+		cornerColour,
 		2.f
 	);
 	ImGui::GetForegroundDrawList()->AddLine(
 		ImVec2(maxX, maxY),
 		ImVec2(maxX, maxY - lineLen),
-		IM_COL32(230, 230, 230, 200),
+		cornerColour,
 		2.f
 	);
+
+	auto boxColour = hasLOS ? IM_COL32(230, 50, 50, 100) : IM_COL32(230, 230, 230, 100);
 
 	// Draw a light transparent filled box
 	ImGui::GetForegroundDrawList()->AddRectFilled(
 		ImVec2(minX, minY),
 		ImVec2(maxX, maxY),
-		IM_COL32(100, 100, 100, 50),
+		boxColour,
 		2.f, 0
 	);
 
@@ -185,9 +192,9 @@ void aimLock() {
 	for (auto player : players->span()) {
 		if (player) {
 			if (player->health <= 0) continue; // dead
-			//if (player->team == localPlayer->team) continue; // same team
+			if (player->team == localPlayer->team) continue; // same team
 
-			if (isPlayerInFOV(player, FOV)) {
+			if (isPlayerInFOV(player, FOV) && SDK::raycubelos(localPlayer->origin, player->origin, 0.0f)) {
 				float dist = localPlayer->origin.dist(player->origin);
 				if (dist < closestDist) {
 					closestDist = dist;
@@ -200,8 +207,6 @@ void aimLock() {
 	if (closestPlayer) { // we found a player in our FOV, yay
 		auto targetPos = closestPlayer->origin;
 		auto playerPos = localPlayer->origin;
-		SDK::conoutf("%s @ (%.2f, %.2f, %.2f)", closestPlayer->name.c_str(), targetPos.x, targetPos.y, targetPos.z);
-		SDK::conoutf("%s @ (%.2f, %.2f, %.2f)", localPlayer->name.c_str(), playerPos.x, playerPos.y, playerPos.z);
 
 		auto toTarget = targetPos - playerPos;
 		toTarget.normalize();
@@ -214,8 +219,6 @@ void aimLock() {
 
 		localPlayer->pitch = -degPitch;
 		localPlayer->yaw = degYaw;
-
-		SDK::conoutf("Targeting %s with toTarget (%.2f, %.2f, %.2f)", closestPlayer->name.c_str(), toTarget.x, toTarget.y, toTarget.z);
 	}
 }
 
@@ -250,7 +253,7 @@ BOOL WINAPI hooked_wglSwapBuffers(HDC hdc) {
 	for (auto player : players->span()) {
 		if (player && !player->name.empty()) {
 			if (player->health <= 0) continue; // dead
-			//if (player->team == localPlayer->team) continue; // same team
+			if (player->team == localPlayer->team) continue; // same team
 
 			Rect box = drawBox(player);
 			if (box.x1 == 0 && box.y1 == 0 && box.x2 == 0 && box.y2 == 0) continue; // not on screen
