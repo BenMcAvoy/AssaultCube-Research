@@ -1,0 +1,14 @@
+{
+  "dependencies": [
+    "minhook",
+    {
+      "name": "imgui",
+      "features": [
+        "win32-binding",
+        "opengl3-binding",
+        "freetype",
+        "docking-experimental"
+      ]
+    }
+  ]
+}
