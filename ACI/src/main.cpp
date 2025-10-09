@@ -99,6 +99,7 @@ static bool ejectDLL(std::string_view dllName, HANDLE hProcess) {
 	WaitForSingleObject(hThread, INFINITE);
 	CloseHandle(hThread);
 	INFO("Successfully ejected DLL `{}`", dllName);
+	return true;
 }
 
 static bool inject(std::string_view dllPath, HANDLE hProcess) {

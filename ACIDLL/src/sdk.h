@@ -27,9 +27,11 @@ namespace SDK {
             data_[len] = '\0';
             return *this;
         }
+
         const char* c_str() const { return data_; }
         size_t size() const { return strlen(data_); }
 		bool empty() const { return data_[0] == '\0'; }
+		std::string_view string_view() const { return std::string_view(data_); }
 
 		char data_[MAXSTRLEN];
     };
@@ -89,6 +91,15 @@ namespace SDK {
         float dist(Vec3 other) const {
             return (*this - other).length();
 		}
+        void normalize() {
+            float len = length();
+            if (len > 0) {
+                (*this) *= (1.0f / len);
+            }
+		}
+        float dot(const Vec3& other) const {
+            return x * other.x + y * other.y + z * other.z;
+        }
     };
 
     struct Vec2 {
@@ -246,12 +257,21 @@ namespace SDK {
         }
     };
 
+	class PlayerEntity;
+    namespace G {
+        extern PlayerEntity* localPlayer;
+        extern acVector<PlayerEntity*>* players;
+    }
+
     struct Weapon;
     class PlayerEntity : public DynamicEntity, public PlayerState {
     public:
-        // 0x58BBEC = localPlayer
-		static PlayerEntity* getLocalPlayer() { return *(PlayerEntity**)0x58BBEC; }
-		static acVector<PlayerEntity*>* getPlayers() { return (acVector<PlayerEntity*>*)0x58BBF0; }
+        static PlayerEntity* getLocalPlayer() {
+            return SDK::G::localPlayer;
+        }
+        static acVector<PlayerEntity*>* getPlayers() {
+			return SDK::G::players;
+        }
 
         int curSkin, nextSkin[2];
         int clientNum, lastUpdate, pLag, ping;
@@ -394,9 +414,15 @@ namespace SDK {
 
     namespace G {
         Mat4* mvpMatrix = (Mat4*)0x57EFB0;
+        Mat4* mvMatrix = (Mat4*)0x57EFF0;
+		Mat4* invMVMatrix = (Mat4*)0x57F050;
+
 		const char** teamnames = (const char**)0x56CD00;
         int* screenWidth = (int*)0x591E1C;
         int* screenHeight = (int*)0x592EC8;
+		PlayerEntity* localPlayer = *(PlayerEntity**)0x58BBEC;
+		acVector<PlayerEntity*>* players = (acVector<PlayerEntity*>*)0x58BBF0;
+		PhysicsEntity* localCamera = *(PhysicsEntity**)0x57F09C;
 	} // namespace G
 
     namespace Utils {
@@ -418,5 +444,33 @@ namespace SDK {
 
             return true;
         }
+
+        Vec3 anglesToDirection(float pitch, float yaw) {
+            float radYaw = yaw * (3.14159265f / 180.0f);
+            float radPitch = pitch * (3.14159265f / 180.0f);
+
+            // rotate us 90 degrees to the left to account from weird stuf
+            radYaw -= 1.57079633f; // 90 degrees in radians
+
+            float cp = cosf(radPitch);
+            float sp = sinf(radPitch);
+            float cy = cosf(radYaw);
+            float sy = sinf(radYaw);
+
+            // AC: X = forward, Y = right, Z = up
+            float x = cp * cy;   // forward
+            float y = cp * sy;   // right
+            float z = -sp;       // up/down inverted
+            return Vec3(x, y, z);
+        }
+
+        Vec2 directionToAngles(const Vec3& dir) {
+            Vec2 angles;
+            angles.x = -asinf(-dir.z) * (180.0f / 3.14159265f); // pitch
+            angles.y = atan2f(dir.y, dir.x) * (180.0f / 3.14159265f) + 90.0f; // yaw
+            if (angles.y < 0) angles.y += 360.0f;
+            if (angles.y >= 360.0f) angles.y -= 360.0f;
+            return angles;
+		}
     } // namespace Utils
 } // namespace SDK

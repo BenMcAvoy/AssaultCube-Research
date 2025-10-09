@@ -11,6 +11,214 @@
 #include <imgui_impl_win32.h>
 #include <imgui_impl_opengl3.h>
 
+struct Rect { float x1, y1, x2, y2; };
+static Rect drawBox(SDK::PlayerEntity* player) {
+	auto pos = player->origin;
+	float hx = player->radius;
+	float hy = player->radius;
+	float eyeH = player->eyeHeight;
+	float maxEye = player->maxEyeHeight;
+	if (eyeH <= 0.0f) eyeH = 1.0f;
+	if (maxEye <= 0.0f) maxEye = eyeH + 0.5f;
+	float hminz = -eyeH;
+	float hmaxz = maxEye - eyeH;
+	float totalHeight = (maxEye - (-eyeH));
+	float topPadding = totalHeight * 0.15f;
+	if (topPadding < 0.05f) topPadding = 0.05f;
+	if (topPadding > 0.5f) topPadding = 0.5f;
+	hmaxz += topPadding;
+	if (hminz > -0.1f) hminz = -0.1f;
+	if (hmaxz < 0.1f) hmaxz = 0.1f;
+	struct Vec3Local { float x, y, z; };
+	Vec3Local cornersLocal[8] = {
+		{ -hx, -hy, hminz },
+		{  hx, -hy, hminz },
+		{ -hx,  hy, hminz },
+		{  hx,  hy, hminz },
+		{ -hx, -hy, hmaxz },
+		{  hx, -hy, hmaxz },
+		{ -hx,  hy, hmaxz },
+		{  hx,  hy, hmaxz },
+	};
+	float yaw = player->yaw;
+	float cosY = cosf(yaw);
+	float sinY = sinf(yaw);
+	SDK::Vec2 screenCorners[8]{};
+	bool anyOnScreen = false;
+	for (int i = 0; i < 8; ++i) {
+		auto& L = cornersLocal[i];
+		float wx = L.x * cosY - L.y * sinY;
+		float wy = L.x * sinY + L.y * cosY;
+		float wz = L.z;
+
+		SDK::Vec3 world = { pos.x + wx, pos.y + wy, pos.z + wz };
+		if (SDK::Utils::W2S(world, screenCorners[i])) anyOnScreen = true;
+	}
+
+	if (!anyOnScreen) return Rect{ 0,0,0,0 }; // not on screen
+	float minX = FLT_MAX, minY = FLT_MAX, maxX = -FLT_MAX, maxY = -FLT_MAX;
+	for (int i = 0; i < 8; ++i) {
+		minX = fminf(minX, screenCorners[i].x);
+		minY = fminf(minY, screenCorners[i].y);
+		maxX = fmaxf(maxX, screenCorners[i].x);
+		maxY = fmaxf(maxY, screenCorners[i].y);
+	}
+
+	if (!(minX <= maxX && minY <= maxY)) return Rect{ 0,0,0,0 };
+	/*ImGui::GetForegroundDrawList()->AddRect(
+		ImVec2(minX, minY),
+		ImVec2(maxX, maxY),
+		IM_COL32(230, 230, 230, 200),
+		2.f, 0, 2.f
+	);*/
+
+	// draw corners instead of a full box
+	auto lineLen = (maxX - minX) * 0.2f;
+	ImGui::GetForegroundDrawList()->AddLine(
+		ImVec2(minX, minY),
+		ImVec2(minX + lineLen, minY),
+		IM_COL32(230, 230, 230, 200),
+		2.f
+	);
+	ImGui::GetForegroundDrawList()->AddLine(
+		ImVec2(minX, minY),
+		ImVec2(minX, minY + lineLen),
+		IM_COL32(230, 230, 230, 200),
+		2.f
+	);
+	ImGui::GetForegroundDrawList()->AddLine(
+		ImVec2(maxX, minY),
+		ImVec2(maxX - lineLen, minY),
+		IM_COL32(230, 230, 230, 200),
+		2.f
+	);
+	ImGui::GetForegroundDrawList()->AddLine(
+		ImVec2(maxX, minY),
+		ImVec2(maxX, minY + lineLen),
+		IM_COL32(230, 230, 230, 200),
+		2.f
+	);
+	ImGui::GetForegroundDrawList()->AddLine(
+		ImVec2(minX, maxY),
+		ImVec2(minX + lineLen, maxY),
+		IM_COL32(230, 230, 230, 200),
+		2.f
+	);
+	ImGui::GetForegroundDrawList()->AddLine(
+		ImVec2(minX, maxY),
+		ImVec2(minX, maxY - lineLen),
+		IM_COL32(230, 230, 230, 200),
+		2.f
+	);
+	ImGui::GetForegroundDrawList()->AddLine(
+		ImVec2(maxX, maxY),
+		ImVec2(maxX - lineLen, maxY),
+		IM_COL32(230, 230, 230, 200),
+		2.f
+	);
+	ImGui::GetForegroundDrawList()->AddLine(
+		ImVec2(maxX, maxY),
+		ImVec2(maxX, maxY - lineLen),
+		IM_COL32(230, 230, 230, 200),
+		2.f
+	);
+
+	// Draw a light transparent filled box
+	ImGui::GetForegroundDrawList()->AddRectFilled(
+		ImVec2(minX, minY),
+		ImVec2(maxX, maxY),
+		IM_COL32(100, 100, 100, 50),
+		2.f, 0
+	);
+
+	return Rect{ minX, minY, maxX, maxY };
+}
+
+bool isPlayerInFOV(SDK::PlayerEntity* target, float radFOV) {
+	auto playerPos = target->origin;
+
+	auto cameraPos = SDK::G::localCamera->origin;
+	auto cameraYawDeg = SDK::G::localCamera->yaw - 90.0f;
+	auto cameraPitchDeg = -SDK::G::localCamera->pitch;
+
+	// Convert degrees to radians
+	float cameraYaw = cameraYawDeg * (3.14159265f / 180.0f);
+	float cameraPitch = cameraPitchDeg * (3.14159265f / 180.0f);
+	// Calculate the forward vector from yaw and pitch
+	SDK::Vec3 forward;
+	forward.x = cosf(cameraPitch) * cosf(cameraYaw);
+	forward.y = cosf(cameraPitch) * sinf(cameraYaw);
+	forward.z = -sinf(cameraPitch);
+	forward.normalize();
+
+	// Vector from camera to player
+	SDK::Vec3 toPlayer = playerPos - cameraPos;
+	toPlayer.normalize();
+
+	// Calculate the angle between the forward vector and the toPlayer vector
+	float dotProduct = forward.dot(toPlayer);
+	float angle = acosf(dotProduct); // angle in radians
+	return angle < radFOV;
+}
+
+void aimLock() {
+	constexpr float FOV = 0.3f; // radians
+
+	auto localPlayer = SDK::PlayerEntity::getLocalPlayer();
+	auto players = SDK::PlayerEntity::getPlayers();
+
+	// Draw FOV circle in the center of the screen
+	int screenWidth = *SDK::G::screenWidth;
+	int screenHeight = *SDK::G::screenHeight;
+	ImGui::GetForegroundDrawList()->AddCircle(
+		ImVec2((float)screenWidth / 2, (float)screenHeight / 2),
+		screenHeight * FOV * 0.5f,
+		IM_COL32(200, 200, 200, 100),
+		64,
+		2.f
+	);
+
+	SDK::PlayerEntity* closestPlayer = nullptr;
+	float closestDist = FLT_MAX;
+
+	// Print for every player if they are in FOV
+	for (auto player : players->span()) {
+		if (player) {
+			if (player->health <= 0) continue; // dead
+			//if (player->team == localPlayer->team) continue; // same team
+
+			if (isPlayerInFOV(player, FOV)) {
+				float dist = localPlayer->origin.dist(player->origin);
+				if (dist < closestDist) {
+					closestDist = dist;
+					closestPlayer = player;
+				}
+			}
+		}
+	}
+
+	if (closestPlayer) { // we found a player in our FOV, yay
+		auto targetPos = closestPlayer->origin;
+		auto playerPos = localPlayer->origin;
+		SDK::conoutf("%s @ (%.2f, %.2f, %.2f)", closestPlayer->name.c_str(), targetPos.x, targetPos.y, targetPos.z);
+		SDK::conoutf("%s @ (%.2f, %.2f, %.2f)", localPlayer->name.c_str(), playerPos.x, playerPos.y, playerPos.z);
+
+		auto toTarget = targetPos - playerPos;
+		toTarget.normalize();
+
+		float radPitch = -asinf(toTarget.z);
+		float radYaw = atan2f(toTarget.y, toTarget.x);
+
+		float degPitch = radPitch * (180.0f / 3.14159265f);
+		float degYaw = radYaw * (180.0f / 3.14159265f) + 90.0f;
+
+		localPlayer->pitch = -degPitch;
+		localPlayer->yaw = degYaw;
+
+		SDK::conoutf("Targeting %s with toTarget (%.2f, %.2f, %.2f)", closestPlayer->name.c_str(), toTarget.x, toTarget.y, toTarget.z);
+	}
+}
+
 // wglSwapBuffers
 typedef BOOL(WINAPI* wglSwapBuffers_t)(HDC hdc);
 wglSwapBuffers_t original_wglSwapBuffers = nullptr;
@@ -23,6 +231,10 @@ BOOL WINAPI hooked_wglSwapBuffers(HDC hdc) {
 		ImGuiIO& io = ImGui::GetIO(); (void)io;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
+
+		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\verdana.ttf", 14.0f);
+		io.Fonts->Build();
+
 		ImGui::StyleColorsDark();
 		ImGui_ImplWin32_Init(WindowFromDC(hdc));
 		ImGui_ImplOpenGL3_Init("#version 130");
@@ -33,101 +245,63 @@ BOOL WINAPI hooked_wglSwapBuffers(HDC hdc) {
 
 	ImGui::NewFrame();
 
+	auto localPlayer = SDK::PlayerEntity::getLocalPlayer();
 	auto players = SDK::PlayerEntity::getPlayers();
 	for (auto player : players->span()) {
 		if (player && !player->name.empty()) {
-			auto pos = player->origin;
+			if (player->health <= 0) continue; // dead
+			//if (player->team == localPlayer->team) continue; // same team
 
-			// Build oriented bounding box (OBB) corners in local/player space then rotate by yaw and translate to world
-			float hx = player->radius; // half-width x
-			float hy = player->radius; // half-depth y
-			// The player origin in this engine is roughly at the neck/head area.
-			// Use eyeHeight/maxEyeHeight to compute bottom (feet) and top (head) relative to origin.
-			// bottom: move down by eyeHeight to reach feet (negative Z relative to origin)
-			// top: maxEyeHeight - eyeHeight gives top relative to origin
-			float eyeH = player->eyeHeight;
-			float maxEye = player->maxEyeHeight;
+			Rect box = drawBox(player);
+			if (box.x1 == 0 && box.y1 == 0 && box.x2 == 0 && box.y2 == 0) continue; // not on screen
+			ImVec2 topLeft = ImVec2(box.x1, box.y1);
+			ImVec2 bottomRight = ImVec2(box.x2, box.y2);
 
-			// Fallbacks if values are zero/invalid
-			if (eyeH <= 0.0f) eyeH = 1.0f; // assume ~1m if not present
-			if (maxEye <= 0.0f) maxEye = eyeH + 0.5f; // default head-top above eye
-
-			float hminz = -eyeH; // bottom relative to player->origin (feet below origin)
-			float hmaxz = maxEye - eyeH; // top relative to player->origin
-
-			// Add mild top padding so box doesn't intersect the head.
-			// Use a percentage of the player's total height (top-to-bottom) and clamp it.
-			float totalHeight = (maxEye - (-eyeH)); // head top relative to feet
-			float topPadding = totalHeight * 0.15f; // 15% padding above head
-			// clamp padding to reasonable bounds
-			if (topPadding < 0.05f) topPadding = 0.05f;
-			if (topPadding > 0.5f) topPadding = 0.5f;
-			hmaxz += topPadding;
-
-			// Sanity clamps
-			if (hminz > -0.1f) hminz = -0.1f;
-			if (hmaxz < 0.1f) hmaxz = 0.1f;
-
-			struct Vec3Local { float x, y, z; };
-			Vec3Local cornersLocal[8] = {
-				{ -hx, -hy, hminz },
-				{  hx, -hy, hminz },
-				{ -hx,  hy, hminz },
-				{  hx,  hy, hminz },
-				{ -hx, -hy, hmaxz },
-				{  hx, -hy, hmaxz },
-				{ -hx,  hy, hmaxz },
-				{  hx,  hy, hmaxz },
-			};
-
-			// yaw rotation only (about Z axis). Assume player->yaw is in radians.
-			float yaw = player->yaw;
-			float cosY = cosf(yaw);
-			float sinY = sinf(yaw);
-
-			SDK::Vec2 screenCorners[8];
-			bool anyOnScreen = false;
-
-			for (int i = 0; i < 8; ++i) {
-				auto &L = cornersLocal[i];
-				float wx = L.x * cosY - L.y * sinY; // rotate local -> world (X,Y)
-				float wy = L.x * sinY + L.y * cosY;
-				float wz = L.z;
-
-				SDK::Vec3 world = { pos.x + wx, pos.y + wy, pos.z + wz };
-				if (SDK::Utils::W2S(world, screenCorners[i])) anyOnScreen = true;
-			}
-
-			if (!anyOnScreen) continue; // skip drawing if entirely off-screen
-
-			// compute 2D bounding rect in screen space
-			float minX = FLT_MAX, minY = FLT_MAX, maxX = -FLT_MAX, maxY = -FLT_MAX;
-			for (int i = 0; i < 8; ++i) {
-				minX = fminf(minX, screenCorners[i].x);
-				minY = fminf(minY, screenCorners[i].y);
-				maxX = fmaxf(maxX, screenCorners[i].x);
-				maxY = fmaxf(maxY, screenCorners[i].y);
-			}
-
-			// safety: ensure rect is sane
-			if (!(minX <= maxX && minY <= maxY)) continue;
-
-			ImGui::GetForegroundDrawList()->AddRect(
-				ImVec2(minX, minY),
-				ImVec2(maxX, maxY),
-				IM_COL32(255, 0, 0, 255)
+			// Draw name
+			auto name = player->name.string_view();
+			ImVec2 textSize = ImGui::CalcTextSize(name.data(), name.data() + name.size());
+			ImGui::GetForegroundDrawList()->AddText(
+				ImVec2((box.x1 + box.x2) / 2 - textSize.x / 2, box.y1 - textSize.y - 5),
+				IM_COL32(255, 255, 255, 255),
+				name.data()
 			);
 
-			// draw name centered above box (clamp Y)
-			float textX = minX;
-			float textY = minY - 15.0f;
+			// Draw health and armour on left side of box, green and blue, vertical, no text
+			auto health = player->health;
+			if (health < 0) health = 0;
+			if (health > 100) health = 100;
+			auto armour = player->armour;
+			if (armour < 0) armour = 0;
+			if (armour > 100) armour = 100;
+			float boxHeight = bottomRight.y - topLeft.y;
+			float healthHeight = boxHeight * (health / 100.0f);
+			float armourHeight = boxHeight * (armour / 100.0f);
+			ImGui::GetForegroundDrawList()->AddRectFilled(
+				ImVec2(topLeft.x - 6, bottomRight.y - healthHeight),
+				ImVec2(topLeft.x - 2, bottomRight.y),
+				IM_COL32(50, 200, 50, 200),
+				2.f, 0
+			);
+			if (armour > 10) {
+				ImGui::GetForegroundDrawList()->AddRectFilled(
+					ImVec2(topLeft.x - 10, bottomRight.y - armourHeight),
+					ImVec2(topLeft.x - 6, bottomRight.y),
+					IM_COL32(100, 100, 200, 200),
+					2.f, 0
+				);
+			}
+
+			auto weapon = player->weaponSel->info.title;
+			ImVec2 weaponTextSize = ImGui::CalcTextSize(weapon, weapon + strlen(weapon));
 			ImGui::GetForegroundDrawList()->AddText(
-				ImVec2(textX, textY),
-				IM_COL32(255, 255, 255, 255),
-				player->name.c_str()
+				ImVec2((box.x1 + box.x2) / 2 - weaponTextSize.x / 2, box.y2 + 5),
+				IM_COL32(255, 255, 255, 200),
+				weapon
 			);
 		}
 	}
+
+	aimLock();
 
 	ImGui::Render();
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -136,25 +310,6 @@ BOOL WINAPI hooked_wglSwapBuffers(HDC hdc) {
 }
 
 DWORD MainThread(LPVOID lpParam) {
-	auto team1 = SDK::G::teamnames[0];
-	SDK::conoutf("Team 1: %s", team1 ? team1 : "Unknown");
-
-	auto players = SDK::PlayerEntity::getPlayers();
-	for (auto player : players->span()) {
-		if (player && !player->name.empty()) {
-			SDK::conoutf("Player: %s (CN: %d, Team: %s)", player->name.c_str(), player->clientNum, team_basestring(player->team));
-			SDK::conoutf("Player @ (%f, %f, %f)", player->origin.x, player->origin.y, player->origin.z);
-
-			// w2s each player
-			SDK::Vec2 screenPos;
-			if (SDK::Utils::W2S(player->origin, screenPos)) {
-				SDK::conoutf("Player %s is on screen at (%f, %f)", player->name.c_str(), screenPos.x, screenPos.y);
-			} else {
-				SDK::conoutf("Player %s is off screen", player->name.c_str());
-			}
-		}
-	}
-
 	// Hook opengl32.dll->wglSwapBuffers (create a mh api hook)
 	if (MH_Initialize() != MH_OK) {
 		SDK::conoutf("Failed to initialize MinHook");
